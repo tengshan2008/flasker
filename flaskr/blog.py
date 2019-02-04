@@ -10,6 +10,12 @@ bp = Blueprint('blog', __name__)
 
 @bp.route('/')
 def index():
+    """Show all the posts, most recent first.
+    
+    Returns:
+        response -- index.html
+    """
+
     db = get_db()
     posts = db.execute(
         'SELECT p.id, title, body, created, author_id, username'
@@ -18,9 +24,48 @@ def index():
     ).fetchall()
     return render_template('blog/index.html', posts=posts)
 
+def get_post(id, check_author=True):
+    """Get a post and its author by id.
+
+    Checks that the id exists and optionally that the current user is
+    the author.
+    
+    Arguments:
+        id {int} -- id of post to get
+    
+    Keyword Arguments:
+        check_author {bool} -- require the current user to be the author (default: {True})
+    
+    Returns:
+        dict -- the post with giben id doesn't exist
+        raise 404 -- if a post with the given id doesn't exist
+        raise 403 -- if the current user isn't the author
+    """
+
+    post = get_db().execute(
+        'SELECT p.id, title, body, created, author_id, username'
+        ' FROM post p JOIN user u ON p.author_id = u.id'
+        ' WHERE p.id = ?',
+        (id,)
+    ).fetchone()
+
+    if post is None:
+        abort(404, "Post id {0} doesn't exist.".format(id))
+
+    if check_author and post['author_id'] != g.user['id']:
+        abort(403)
+
+    return post
+
 @bp.route('/create', methods=('GET', 'POST'))
 @login_required
 def create():
+    """Create a new post for the current user.
+    
+    Returns:
+        template -- blog/create.html
+    """
+
     if request.method == 'POST':
         title = request.form['title']
         body = request.form['body']
@@ -43,25 +88,20 @@ def create():
 
     return render_template('blog/create.html')
 
-def get_post(id, check_author=True):
-    post = get_db().execute(
-        'SELECT p.id, title, body, created, author_id, username'
-        ' FROM post p JOIN user u ON p.author_id = u.id'
-        ' WHERE p.id = ?',
-        (id,)
-    ).fetchone()
 
-    if post is None:
-        abort(404, "Post id {0} doesn't exist.".format(id))
-
-    if check_author and post['author_id'] != g.user['id']:
-        abort(403)
-
-    return post
 
 @bp.route('/<int:id>/update', methods=('GET', 'POST'))
 @login_required
 def update(id):
+    """Update a post if the current user is the author.
+    
+    Arguments:
+        id {int} -- id of post to get
+    
+    Returns:
+        template -- blog/update.html
+    """
+
     post = get_post(id)
 
     if request.method == 'POST':
@@ -89,6 +129,18 @@ def update(id):
 @bp.route('/<int:id>/delete', methods=('POST',))
 @login_required
 def delete(id):
+    """Delete a post
+
+    Ensures that the post exists and that the logged in user is the
+    author of the post.
+    
+    Arguments:
+        id {int} -- id of post to get
+    
+    Returns:
+        Response -- response to blog.index
+    """
+
     get_post(id)
     db = get_db()
     db.execute('DELETE FROM post WHERE id = ?', (id,))
